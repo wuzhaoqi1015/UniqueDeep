@@ -42,11 +42,13 @@ cd UniqueDeep
 uv sync
 
 ```
-### （可选）安装初始skill：find-skills和skill-creator
 
-find-skills：自动下载所需的skill
+<details>
+<summary>（可选）安装初始skill：find-skills和skill-creator</summary>
 
-skill-creator：创建自定义skill
+#### find-skills：自动下载所需的skill
+
+#### skill-creator：创建自定义skill
 
 ```bash
 # 检查npm版本
@@ -70,6 +72,8 @@ npx skills add https://github.com/anthropics/skills --skill skill-creator -y
 # ssh-add ~/.ssh/id_ed25519
 # ssh-add -l
 ```
+</details>
+
 
 ### 2. 配置模型
 
