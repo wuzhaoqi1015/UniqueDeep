@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="docs/images/logo.jpg" alt="图片描述" width="70%" height="70%" />
+<img src="docs/images/logo.jpg" alt="图片描述" width="90%" height="90%" />
 
 **使用 LangChain 构建的 Skills Agent**  
 *实现类似 Anthropic Skills 三层加载机制的底层原理*
