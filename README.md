@@ -108,6 +108,19 @@ uv run uniquedeep --interactive
 ```
 
 
+### 4. Docker 支持
+
+如果您希望在隔离的 Docker 沙盒环境中运行交互模式：
+
+1. **构建并启动容器**：
+
+```bash
+docker compose run --rm uniquedeep
+```
+
+2. **环境变量**：
+   Docker 会自动读取项目根目录下的 `.env` 文件，请确保已正确配置 API Key。
+
 ## 🏗️ Skills 三层加载机制
 
 本项目核心在于复刻了高效的 Skills 加载架构：
@@ -146,6 +159,7 @@ uv run uniquedeep --interactive
 | `uv run uniquedeep --interactive` | 启动交互式会话（推荐） |
 | `uv run uniquedeep "列出文件"` | 单次执行任务 |
 | `uv run uniquedeep --list-skills` | 查看已发现的 Skills |
+| `docker compose run --rm uniquedeep` | 在 Docker 中启动交互模式 |
 | `uv run uniquedeep --show-prompt` | 查看注入的 System Prompt |
 
 **交互模式指令**:

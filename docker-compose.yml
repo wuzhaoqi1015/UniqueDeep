@@ -1,0 +1,22 @@
+services:
+  uniquedeep:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      # Pass through environment variables from the host
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_BASE_URL
+      - DEEPSEEK_API_KEY
+      - DEEPSEEK_BASE_URL
+      - OPENAI_API_KEY
+      - OPENAI_BASE_URL
+      - LLM_PROVIDER
+      - LLM_MODEL
+      - MAX_TOKENS
+      - DEFAULT_TEMPERATURE
+      - SKILLS_DEBUG
+    stdin_open: true
+    tty: true
+    # Use uv run to execute the CLI directly
+    command: uv run uniquedeep --interactive
