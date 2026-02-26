@@ -282,8 +282,7 @@ def glob(pattern: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
         return f"[FAILED] {str(e)}"
 
 
-@tool
-def search(): ...
+
 
 
 @tool
