@@ -21,6 +21,8 @@ ToolRuntime 提供访问运行时信息的统一接口：
 """
 
 import subprocess
+import sys
+import tempfile
 import fnmatch
 import re
 from pathlib import Path
@@ -281,6 +283,10 @@ def glob(pattern: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
 
 
 @tool
+def search(): ...
+
+
+@tool
 def grep(pattern: str, path: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
     """
     Search for a pattern in files.
@@ -472,4 +478,85 @@ def list_dir(path: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
         return f"[FAILED] {str(e)}"
 
 
-ALL_TOOLS = [load_skill, bash, read_file, write_file, glob, grep, edit, list_dir]
+@tool
+def python(code: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
+    """
+    Execute Python code.
+
+    Use this to:
+    - Run Python scripts and snippets
+    - Perform calculations
+    - Process data
+
+    The code runs in a separate process.
+    Variables and state are NOT preserved between calls.
+
+    Args:
+        code: Python code to execute
+    """
+    cwd = runtime.context.working_directory
+    temp_path = None
+
+    try:
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.py', delete=False, dir=cwd, encoding='utf-8'
+        ) as f:
+            f.write(code)
+            temp_path = Path(f.name)
+
+        # Execute the file
+        result = subprocess.run(
+            [sys.executable, str(temp_path)],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+        parts = []
+        if result.returncode == 0:
+            parts.append("[OK]")
+        else:
+            parts.append(f"[FAILED] Exit code: {result.returncode}")
+
+        parts.append("")
+
+        if result.stdout:
+            parts.append(result.stdout.rstrip())
+
+        if result.stderr:
+            if result.stdout:
+                parts.append("")
+            parts.append("--- stderr ---")
+            parts.append(result.stderr.rstrip())
+
+        if not result.stdout and not result.stderr:
+            parts.append("(no output)")
+
+        return "\n".join(parts)
+
+    except subprocess.TimeoutExpired:
+        return "[FAILED] Execution timed out after 300 seconds."
+    except Exception as e:
+        return f"[FAILED] {str(e)}"
+    finally:
+        # Clean up
+        if temp_path and temp_path.exists():
+            try:
+                temp_path.unlink()
+            except Exception:
+                pass
+
+
+ALL_TOOLS = [
+    load_skill,
+    bash,
+    read_file,
+    write_file,
+    glob,
+    grep,
+    edit,
+    list_dir,
+    python,
+]

@@ -717,6 +717,10 @@ def cmd_interactive(enable_thinking: bool = True):
                     console.print("[red]! Invalid temperature value[/red]")
                 continue
 
+            # TODO 切换模型
+            if user_input.lower().startswith("/model"):
+                ...
+
             # 运行 agent（流式输出）
             console.print()
 
