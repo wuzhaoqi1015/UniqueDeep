@@ -62,6 +62,7 @@ except ImportError:
 from .skill_loader import SkillLoader
 from .tools import ALL_TOOLS, SkillAgentContext
 from .stream import StreamEventEmitter, ToolCallTracker, is_success, DisplayLimits
+from .mcp_manager import McpManager
 
 
 # 加载环境变量（override=True 确保 .env 文件覆盖系统环境变量）
@@ -174,6 +175,7 @@ class LangChainSkillsAgent:
         temperature: Optional[float] = None,
         enable_thinking: bool = True,
         thinking_budget: int = DEFAULT_THINKING_BUDGET,
+        mcp_manager: Optional[McpManager] = None,
     ):
         """
         初始化 Agent
@@ -186,10 +188,12 @@ class LangChainSkillsAgent:
             temperature: 温度参数 (启用 thinking 时强制为 1.0)
             enable_thinking: 是否启用 Extended Thinking
             thinking_budget: thinking 的 token 预算
+            mcp_manager: MCP 客户端管理器
         """
         # thinking 配置
         self.enable_thinking = enable_thinking
         self.thinking_budget = thinking_budget
+        self.mcp_manager = mcp_manager
 
         # 配置 (启用 thinking 时温度必须为 1.0)
 
@@ -313,10 +317,15 @@ When a user request matches a skill's description, use the load_skill tool to ge
             **init_kwargs,
         )
 
+        # 组合工具
+        tools = list(ALL_TOOLS)
+        if self.mcp_manager:
+            tools.extend(self.mcp_manager.tools)
+
         # 创建 Agent
         agent = create_agent(
             model=model,
-            tools=ALL_TOOLS,
+            tools=tools,
             system_prompt=self.system_prompt,
             context_schema=SkillAgentContext,
             checkpointer=InMemorySaver(),
@@ -675,6 +684,7 @@ def create_skills_agent(
     working_directory: Optional[Path] = None,
     enable_thinking: bool = True,
     thinking_budget: int = DEFAULT_THINKING_BUDGET,
+    mcp_manager: Optional[McpManager] = None,
 ) -> LangChainSkillsAgent:
     """
     便捷函数：创建 Skills Agent
@@ -685,6 +695,7 @@ def create_skills_agent(
         working_directory: 工作目录
         enable_thinking: 是否启用 Extended Thinking
         thinking_budget: thinking 的 token 预算
+        mcp_manager: MCP 客户端管理器
 
     Returns:
         配置好的 LangChainSkillsAgent 实例
@@ -695,4 +706,5 @@ def create_skills_agent(
         working_directory=working_directory,
         enable_thinking=enable_thinking,
         thinking_budget=thinking_budget,
+        mcp_manager=mcp_manager,
     )

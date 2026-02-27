@@ -50,6 +50,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from .agent import LangChainSkillsAgent, check_api_credentials
 from .skill_loader import SkillLoader
+from .mcp_manager import McpManager
 from .stream import (
     ToolResultFormatter,
     has_args,
@@ -544,11 +545,11 @@ def cmd_list_skills():
     console.print(table)
 
 
-def cmd_show_prompt():
+def cmd_show_prompt(mcp_manager: McpManager = None):
     """显示 system prompt（演示 Level 1）"""
     console.print("\n[bold cyan]Building System Prompt (Level 1)...[/bold cyan]\n")
 
-    agent = LangChainSkillsAgent()
+    agent = LangChainSkillsAgent(mcp_manager=mcp_manager)
     prompt = agent.get_system_prompt()
 
     console.print(
@@ -568,13 +569,14 @@ def cmd_show_prompt():
     console.print(f"[dim]Estimated tokens: ~{token_estimate}[/dim]")
 
 
-def cmd_run(prompt: str, enable_thinking: bool = True):
+def cmd_run(prompt: str, enable_thinking: bool = True, mcp_manager: McpManager = None):
     """
     执行单次请求，支持流式输出和 thinking 显示
 
     Args:
         prompt: 用户请求
         enable_thinking: 是否启用 thinking 显示
+        mcp_manager: MCP 管理器
     """
     console.print(Panel(f"[bold cyan]User Request:[/bold cyan]\n{prompt}"))
     console.print()
@@ -585,7 +587,7 @@ def cmd_run(prompt: str, enable_thinking: bool = True):
         console.print("Please set ANTHROPIC_API_KEY or DEEPSEEK_API_KEY in .env file")
         sys.exit(1)
 
-    agent = LangChainSkillsAgent(enable_thinking=enable_thinking)
+    agent = LangChainSkillsAgent(enable_thinking=enable_thinking, mcp_manager=mcp_manager)
 
     console.print("[dim]Running agent with streaming output...[/dim]\n")
 
@@ -622,12 +624,13 @@ def cmd_run(prompt: str, enable_thinking: bool = True):
         raise
 
 
-def cmd_interactive(enable_thinking: bool = True):
+def cmd_interactive(enable_thinking: bool = True, mcp_manager: McpManager = None):
     """
     交互式对话模式，支持流式输出和 thinking 显示
 
     Args:
         enable_thinking: 是否启用 thinking 显示
+        mcp_manager: MCP 管理器
     """
     print_banner()
 
@@ -637,7 +640,7 @@ def cmd_interactive(enable_thinking: bool = True):
         console.print("Please set ANTHROPIC_API_KEY or DEEPSEEK_API_KEY in .env file")
         sys.exit(1)
 
-    agent = LangChainSkillsAgent(enable_thinking=enable_thinking)
+    agent = LangChainSkillsAgent(enable_thinking=enable_thinking, mcp_manager=mcp_manager)
 
     # 显示发现的 Skills
     skills = agent.get_discovered_skills()
@@ -657,9 +660,9 @@ def cmd_interactive(enable_thinking: bool = True):
     thread_id = "interactive"
 
     # 初始化 prompt_toolkit session（跨平台兼容路径）
-    history_file = str(Path.home() / ".uniquedeep_history")
+    # history_file = str(Path.home() / ".uniquedeep_history")
     session = PromptSession(
-        history=FileHistory(history_file),
+        # history=FileHistory(history_file),
         auto_suggest=AutoSuggestFromHistory(),
         enable_history_search=True,
     )
@@ -830,18 +833,36 @@ Features:
     # thinking 开关
     enable_thinking = not args.no_thinking
 
-    # 执行命令
-    if args.list_skills:
-        cmd_list_skills()
-    elif args.show_prompt:
-        cmd_show_prompt()
-    elif args.interactive:
-        cmd_interactive(enable_thinking=enable_thinking)
-    elif args.prompt:
-        cmd_run(args.prompt, enable_thinking=enable_thinking)
-    else:
-        # 默认进入交互模式
-        cmd_interactive(enable_thinking=enable_thinking)
+    # Initialize MCP Manager if config exists
+    mcp_config = Path("mcp_server_config.json")
+    if not mcp_config.exists():
+        # Try home directory
+        mcp_config = Path.home() / ".uniquedeep" / "mcp_server_config.json"
+    
+    mcp_manager = None
+    if mcp_config.exists():
+        try:
+            mcp_manager = McpManager(mcp_config)
+            mcp_manager.start()
+        except Exception as e:
+            console.print(f"[red]Failed to initialize MCP: {e}[/red]")
+
+    try:
+        # 执行命令
+        if args.list_skills:
+            cmd_list_skills()
+        elif args.show_prompt:
+            cmd_show_prompt(mcp_manager=mcp_manager)
+        elif args.interactive:
+            cmd_interactive(enable_thinking=enable_thinking, mcp_manager=mcp_manager)
+        elif args.prompt:
+            cmd_run(args.prompt, enable_thinking=enable_thinking, mcp_manager=mcp_manager)
+        else:
+            # 默认进入交互模式
+            cmd_interactive(enable_thinking=enable_thinking, mcp_manager=mcp_manager)
+    finally:
+        if mcp_manager:
+            mcp_manager.cleanup()
 
 
 if __name__ == "__main__":
