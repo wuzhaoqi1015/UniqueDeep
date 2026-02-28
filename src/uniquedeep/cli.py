@@ -651,7 +651,7 @@ def cmd_interactive(enable_thinking: bool = True):
     )
     console.print(f"[dim]Extended Thinking: {thinking_status}[/dim]")
     console.print(
-        "[dim]Commands: /exit to quit, /skills to list skills, /prompt to show system prompt, /temp [val] to set temperature[/dim]\n"
+        "[dim]Commands: /exit to quit, /skills to list skills, /prompt to show system prompt, /temp [val] to set temperature, /model <name> [provider] to switch model[/dim]\n"
     )
 
     thread_id = "interactive"
@@ -717,9 +717,29 @@ def cmd_interactive(enable_thinking: bool = True):
                     console.print("[red]! Invalid temperature value[/red]")
                 continue
 
-            # TODO 切换模型
+            # 切换模型
             if user_input.lower().startswith("/model"):
-                ...
+                try:
+                    parts = user_input.split()
+                    if len(parts) >= 2:
+                        new_model = parts[1]
+                        provider = parts[2] if len(parts) > 2 else None
+                        
+                        console.print(f"[dim]Switching model to {new_model}...[/dim]")
+                        if agent.switch_model(new_model, provider, thread_id=thread_id):
+                            console.print(f"[green]✓ Switched to model: {agent.model_name} ({agent.provider})[/green]")
+                            if agent.provider == "anthropic" and agent.enable_thinking:
+                                console.print("[dim]Extended Thinking enabled[/dim]")
+                            elif agent.provider != "anthropic" and not agent.enable_thinking:
+                                console.print("[dim]Extended Thinking disabled (not supported)[/dim]")
+                        else:
+                            console.print("[red]! Failed to switch model[/red]")
+                    else:
+                        console.print(f"[dim]Current model: {agent.model_name} ({agent.provider})[/dim]")
+                        console.print("[dim]Usage: /model <model_name> [provider][/dim]")
+                except Exception as e:
+                    console.print(f"[red]! Error switching model: {e}[/red]")
+                continue
 
             # 运行 agent（流式输出）
             console.print()
