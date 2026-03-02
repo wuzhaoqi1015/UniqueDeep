@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import sys
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -49,6 +50,7 @@ from rich.syntax import Syntax
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from .agent import LangChainSkillsAgent, check_api_credentials
+from .tools import bing_mcp_client
 from .skill_loader import SkillLoader
 from .stream import (
     ToolResultFormatter,
@@ -644,6 +646,33 @@ def cmd_interactive(enable_thinking: bool = True):
     console.print(f"\n[green]✓[/green] Discovered {len(skills)} skills")
     for skill in skills:
         console.print(f"  - {skill['name']}")
+    
+    # 检查 MCP 状态
+    console.print("\n[dim]Checking MCP Status...[/dim]")
+    try:
+        async def check_mcp():
+            try:
+                return await bing_mcp_client.list_tools()
+            finally:
+                await bing_mcp_client.close()
+            
+        mcp_tools = asyncio.run(check_mcp())
+        if mcp_tools:
+            console.print(f"[green]✓[/green] MCP Connected: bing-cn-mcp ({len(mcp_tools)} tools)")
+            for tool in mcp_tools:
+                 # tool might be an object or dict
+                 if hasattr(tool, 'name'):
+                     name = tool.name
+                 else:
+                     name = tool.get('name', 'unknown')
+                 console.print(f"  - {name} (MCP)")
+        else:
+            console.print("[yellow]! MCP Connected but no tools found[/yellow]")
+    except Exception as e:
+        console.print(f"[yellow]! MCP Connection Failed: {str(e)}[/yellow]")
+        console.print("[dim]  Ensure 'bing-cn-mcp' is installed via npm and npx is in PATH.[/dim]")
+        console.print("[dim]  Note: Some MCP servers require Node.js >= 20.[/dim]")
+    
     console.print()
 
     thinking_status = (

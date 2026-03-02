@@ -25,13 +25,22 @@ import sys
 import tempfile
 import fnmatch
 import re
+import datetime
+import urllib.request
+import urllib.parse
 from pathlib import Path
 from dataclasses import dataclass, field
 
 from langchain.tools import tool, ToolRuntime
+from lxml import html
 
 from .skill_loader import SkillLoader
 from .stream import resolve_path
+from .mcp_client import MCPClient, run_mcp_tool
+
+# Global Bing MCP Client
+# Assuming 'npx' is in PATH. The '-y' flag ensures npx doesn't prompt for installation.
+bing_mcp_client = MCPClient(command="npx", args=["-y", "bing-cn-mcp"])
 
 
 @dataclass
@@ -481,17 +490,6 @@ def list_dir(path: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
 def python(code: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
     """
     Execute Python code.
-
-    Use this to:
-    - Run Python scripts and snippets
-    - Perform calculations
-    - Process data
-
-    The code runs in a separate process.
-    Variables and state are NOT preserved between calls.
-
-    Args:
-        code: Python code to execute
     """
     cwd = runtime.context.working_directory
     temp_path = None
@@ -548,6 +546,99 @@ def python(code: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
                 pass
 
 
+@tool
+def get_current_time(runtime: ToolRuntime[SkillAgentContext]) -> str:
+    """
+    Get the current system time.
+
+    Use this to:
+    - Check the current date and time
+    - Timestamp events or logs
+    """
+    now = datetime.datetime.now()
+    return f"[OK]\n\nCurrent time: {now.strftime('%Y-%m-%d %H:%M:%S')}"
+
+
+# @tool
+# def web_search(query: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
+#     """
+#     Search the web for information using Bing.
+
+#     Use this to:
+#     - Find current events, news, and real-time information
+#     - Look up documentation, libraries, and technical solutions
+#     - Verify facts and data
+
+#     Args:
+#         query: The search query string
+#     """
+#     try:
+#         # Encode the query
+#         encoded_query = urllib.parse.quote(query)
+#         url = f"https://www.bing.com/search?q={encoded_query}"
+        
+#         # Create a request with User-Agent to mimic a browser
+#         req = urllib.request.Request(
+#             url, 
+#             headers={
+#                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+#             }
+#         )
+        
+#         # Perform the request
+#         with urllib.request.urlopen(req, timeout=10) as response:
+#             html_content = response.read().decode('utf-8')
+            
+#         # Parse HTML using lxml
+#         tree = html.fromstring(html_content)
+        
+#         # Bing search results usually have class 'b_algo'
+#         results = tree.xpath('//li[@class="b_algo"]')
+        
+#         if not results:
+#             return "No results found on Bing."
+            
+#         formatted_results = []
+#         for i, result in enumerate(results[:5], 1):
+#             # Extract title
+#             title_node = result.xpath('.//h2/a')
+#             if not title_node:
+#                 continue
+#             title = title_node[0].text_content()
+#             link = title_node[0].get('href')
+            
+#             # Extract snippet (caption)
+#             snippet_node = result.xpath('.//div[@class="b_caption"]/p')
+#             if not snippet_node:
+#                 # Try alternative snippet location
+#                 snippet_node = result.xpath('.//p')
+                
+#             snippet = snippet_node[0].text_content() if snippet_node else "No description available."
+            
+#             formatted_results.append(f"{i}. {title}\n   Link: {link}\n   Summary: {snippet}\n")
+            
+#         return f"[OK]\n\n" + "\n".join(formatted_results)
+        
+#     except Exception as e:
+#         return f"[FAILED] Search failed: {str(e)}"
+
+
+# @tool
+# def bing_search(query: str, runtime: ToolRuntime[SkillAgentContext]) -> str:
+#     """
+#     Search using Bing via MCP (bing-cn-mcp).
+    
+#     Use this for:
+#     - High-quality web search results
+#     - Retrieving information via the Bing MCP server
+    
+#     Args:
+#         query: Search query
+#     """
+#     # The tool name in bing-cn-mcp is 'bing_search'
+#     return run_mcp_tool(bing_mcp_client, "bing_search", {"query": query})
+
+
 ALL_TOOLS = [
     load_skill,
     bash,
@@ -558,4 +649,7 @@ ALL_TOOLS = [
     edit,
     list_dir,
     python,
+    get_current_time,
+    # web_search,
+    # bing_search,
 ]

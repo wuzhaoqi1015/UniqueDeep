@@ -169,6 +169,7 @@ class LangChainSkillsAgent:
     def __init__(
         self,
         model: Optional[str] = None,
+        provider: Optional[str] = None,
         skill_paths: Optional[list[Path]] = None,
         working_directory: Optional[Path] = None,
         max_tokens: Optional[int] = None,
@@ -181,6 +182,7 @@ class LangChainSkillsAgent:
 
         Args:
             model: 模型名称，默认 claude-sonnet-4-5-20250929
+            provider: 模型提供商 (anthropic, deepseek, openai)
             skill_paths: Skills 搜索路径
             working_directory: 工作目录
             max_tokens: 最大 tokens
@@ -195,10 +197,22 @@ class LangChainSkillsAgent:
         # 配置 (启用 thinking 时温度必须为 1.0)
 
         # 获取模型配置
-        provider, model_name, self.api_key, self.base_url = get_model_config()
+        env_provider, env_model_name, self.api_key, self.base_url = get_model_config()
 
-        self.model_name = model or model_name
-        self.provider = provider
+        self.model_name = model or env_model_name
+        self.provider = provider or env_provider
+        
+        # Re-fetch API key if provider was overridden or different from env
+        if self.provider != env_provider:
+             prefix = self.provider.upper()
+             if self.provider == "anthropic":
+                 self.api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
+             else:
+                 self.api_key = os.getenv(f"{prefix}_API_KEY")
+             
+             self.base_url = os.getenv(f"{prefix}_BASE_URL")
+             if self.provider == "deepseek" and not self.base_url:
+                 self.base_url = "https://api.deepseek.com"
 
         # Print loaded configuration for debugging
         if (
@@ -297,8 +311,8 @@ Note: The user may switch models during the conversation. System markers like "[
             init_kwargs["api_key"] = self.api_key
 
         if self.base_url:
-            # DeepSeek SDK 使用 api_base 而不是 base_url，OpenAI 也常用 api_base
-            if self.provider == "deepseek" or self.provider == "openai":
+            # DeepSeek SDK 使用 api_base 而不是 base_url
+            if self.provider == "deepseek":
                 init_kwargs["api_base"] = self.base_url
             else:
                 init_kwargs["base_url"] = self.base_url
