@@ -26,5 +26,5 @@ rna_paper/
 # agent skill
 .agents/
 .claude/
-
+.trae
  

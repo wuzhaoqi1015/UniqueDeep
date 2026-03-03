@@ -85,40 +85,134 @@ class StreamState:
     """流式处理状态容器"""
 
     def __init__(self):
-        self.thinking_text = ""
-        self.response_text = ""
-        self.tool_calls = []
-        self.tool_results = []
+        # 统一的事件列表，按顺序存储所有显示的事件
+        # 每一项是一个字典：{'type': 'thinking'|'tool'|'response', 'data': ..., 'is_completed': False}
+        self.events = []
+        
+        # 当前正在累积的 thinking 内容
+        self.current_thinking = ""
+        # 当前正在累积的 response 内容
+        self.current_response = ""
+        
+        # 辅助状态
         self.is_thinking = False
         self.is_responding = False
-        self.is_processing = False  # 工具执行后等待 AI 继续处理
+        self.is_processing = False
+        
+        # 工具调用状态追踪 (用于去重和更新)
+        self.tool_map = {} # tool_id -> index in self.events
+
+    def mark_last_event_completed(self):
+        """标记最后一个事件为完成（如果存在）"""
+        if self.events:
+            self.events[-1]["is_completed"] = True
 
     def handle_event(self, event: dict) -> str:
-        """
-        处理单个流式事件，更新内部状态
-
-        Args:
-            event: 流式事件字典
-
-        Returns:
-            事件类型
-        """
         event_type = event.get("type")
 
+        # 预处理：如果是文本事件，且当前正在 thinking，且文本内容非常短或者是解释性的，
+        # 我们可能需要将其合并到 thinking 中。
+        # 但在 agent.py 层面我们已经尝试根据 block_has_tool 做了转换。
+        # 这里我们做更激进的兼容：
+        # 如果当前事件是 response，但我们发现它实际上是工具调用前的解释（通过查看后续事件或当前状态），
+        # 我们可以将其转换。但流式处理很难预知未来。
+        # 替代方案：允许 response 和 thinking 共存，但在显示时，如果发现 response 后紧跟 tool，
+        # 视觉上将其弱化或合并。不过用户要求是视为 thinking。
+        
+        # 策略：如果 is_thinking 为 True，且收到了 text，我们不立即结束 thinking，
+        # 而是检查这个 text 是否看起来像是"好的，我将调用工具..."之类的废话。
+        # 但最简单的办法是：相信 agent.py 的转换。
+        # 这里只负责状态流转。
+
         if event_type == "thinking":
-            self.is_thinking = True
-            self.is_responding = False
-            self.is_processing = False  # 收到新内容，不再是处理中
-            self.thinking_text += event.get("content", "")
+            content = event.get("content", "")
+            
+            # 如果之前不在思考状态，说明开始了新的一轮思考
+            if not self.is_thinking:
+                # 如果上一个事件存在且未完成（例如上一个是 response 但还没收到 done），这里需要根据逻辑判断
+                # 通常 thinking 是新的一步，意味着上一步（如果是 tool 或 response）应该已经结束了
+                # 但为了安全，我们只在明确切换类型时标记完成
+                if self.events and not self.events[-1]["is_completed"]:
+                     self.events[-1]["is_completed"] = True
+
+                self.is_thinking = True
+                self.is_responding = False
+                self.is_processing = False
+                self.current_thinking = content
+                
+                # 添加新的 thinking 事件
+                self.events.append({
+                    "type": "thinking",
+                    "content": self.current_thinking,
+                    "is_completed": False
+                })
+            else:
+                # 继续累积当前 thinking
+                self.current_thinking += content
+                # 更新最后一个 thinking 事件的内容
+                if self.events and self.events[-1]["type"] == "thinking":
+                    self.events[-1]["content"] = self.current_thinking
 
         elif event_type == "text":
-            self.is_thinking = False
+            # 收到文本
+            content = event.get("content", "")
+            
+            # 兼容性逻辑：如果当前正在 thinking，且收到的文本不是特别长（或者符合特定模式），
+            # 我们将其追加到 thinking 中，而不是开启新的 response。
+            # 这可以解决 Anthropic 将部分推理作为 text 输出的问题。
+            # 阈值判断：如果文本以 "Thought:" 开头，或者当前处于 thinking 模式且文本较短
+            
+            # 但要注意：真正的 response 也可能很短。
+            # 关键在于：DeepSeek 的 reasoning_content 是明确分离的。
+            # Anthropic 的 thinking 也是分离的，但普通的 Chain of Thought 是 text。
+            
+            # 如果我们决定将此 text 视为 thinking：
+            if self.is_thinking:
+                self.current_thinking += content
+                if self.events and self.events[-1]["type"] == "thinking":
+                    self.events[-1]["content"] = self.current_thinking
+                return "thinking" # 伪装成 thinking 事件
+            
+            # 否则，结束 thinking，开始 response
+            if self.is_thinking:
+                self.is_thinking = False
+                self.mark_last_event_completed()
+
             self.is_responding = True
-            self.is_processing = False  # 收到新内容，不再是处理中
-            self.response_text += event.get("content", "")
+            self.is_processing = False
+            
+            # 响应通常是最后一部分，但也可能是分段的
+            if not self.current_response:
+                # 如果之前有未完成的事件（非 response），标记为完成
+                if self.events and self.events[-1]["type"] != "response":
+                     self.events[-1]["is_completed"] = True
+
+                self.current_response = content
+                self.events.append({
+                    "type": "response",
+                    "content": self.current_response,
+                    "is_completed": False
+                })
+            else:
+                self.current_response += content
+                # 查找并更新响应事件
+                for i in range(len(self.events) - 1, -1, -1):
+                    if self.events[i]["type"] == "response":
+                        self.events[i]["content"] = self.current_response
+                        break
+                else:
+                    self.events.append({
+                        "type": "response",
+                        "content": self.current_response,
+                        "is_completed": False
+                    })
 
         elif event_type == "tool_call":
-            self.is_thinking = False
+            # 收到工具调用，意味着思考结束（如果有）
+            if self.is_thinking:
+                self.is_thinking = False
+                self.mark_last_event_completed()
+            
             self.is_responding = False
             self.is_processing = False
 
@@ -127,55 +221,120 @@ class StreamState:
                 "id": tool_id,
                 "name": event.get("name", "unknown"),
                 "args": event.get("args", {}),
+                "result": None, # 尚未有结果
+                "status": "running"
             }
 
-            # 用 tool_id 去重和更新（finalize 后会发送带完整参数的更新）
             if tool_id:
-                updated = False
-                for i, tc in enumerate(self.tool_calls):
-                    if tc.get("id") == tool_id:
-                        self.tool_calls[i] = tc_data
-                        updated = True
-                        break
-                if not updated:
-                    self.tool_calls.append(tc_data)
+                if tool_id in self.tool_map:
+                    # 更新已存在的工具调用
+                    idx = self.tool_map[tool_id]
+                    self.events[idx]["data"]["args"] = tc_data["args"]
+                else:
+                    # 如果上一个事件不是工具调用（并行的），且未完成，标记为完成
+                    # 注意：并行工具调用时，我们不希望把前一个正在 running 的工具标记为 completed
+                    # 只有非工具事件才需要标记
+                    if self.events and self.events[-1]["type"] not in ("tool", "response") and not self.events[-1]["is_completed"]:
+                        self.events[-1]["is_completed"] = True
+
+                    # 新工具调用
+                    self.events.append({
+                        "type": "tool",
+                        "data": tc_data,
+                        "is_completed": False
+                    })
+                    self.tool_map[tool_id] = len(self.events) - 1
             else:
-                self.tool_calls.append(tc_data)
+                if self.events and self.events[-1]["type"] not in ("tool", "response") and not self.events[-1]["is_completed"]:
+                    self.events[-1]["is_completed"] = True
+                
+                self.events.append({
+                    "type": "tool",
+                    "data": tc_data,
+                    "is_completed": False
+                })
 
         elif event_type == "tool_result":
-            self.is_processing = True  # 工具执行完成，等待 AI 继续处理
-            self.tool_results.append(
-                {
-                    "name": event.get("name", "unknown"),
-                    "content": event.get("content", ""),
+            self.is_processing = True
+            
+            # 查找匹配的工具并更新
+            target_idx = -1
+            # 优先找同名且 running 的
+            name = event.get("name", "unknown")
+            
+            for i in range(len(self.events) - 1, -1, -1):
+                evt = self.events[i]
+                if evt["type"] == "tool" and evt["data"]["status"] == "running":
+                    if evt["data"]["name"] == name:
+                        target_idx = i
+                        break
+            
+            # 如果没找到同名的，找任意一个 running 的（fallback）
+            if target_idx == -1:
+                for i in range(len(self.events) - 1, -1, -1):
+                    if self.events[i]["type"] == "tool" and self.events[i]["data"]["status"] == "running":
+                        target_idx = i
+                        break
+            
+            if target_idx != -1:
+                tool_data = self.events[target_idx]["data"]
+                tool_data["status"] = "done"
+                tool_data["result"] = {
+                    "name": name,
+                    "content": event.get("content", "")
                 }
-            )
+                # 工具执行完成，标记该事件为 completed
+                self.events[target_idx]["is_completed"] = True
+            else:
+                pass
 
         elif event_type == "done":
             self.is_processing = False
-            if not self.response_text:
-                self.response_text = event.get("response", "")
+            # 标记所有未完成的事件为完成
+            for evt in self.events:
+                evt["is_completed"] = True
+                
+            if not self.current_response:
+                 # 如果没有流式响应，使用 done 事件中的完整响应
+                response = event.get("response", "")
+                if response:
+                    self.current_response = response
+                    self.events.append({
+                        "type": "response",
+                        "content": self.current_response,
+                        "is_completed": True
+                    })
 
         elif event_type == "error":
             self.is_processing = False
             self.is_thinking = False
             self.is_responding = False
-            # 将错误添加到响应中显示
             error_msg = event.get("message", "Unknown error")
-            self.response_text += f"\n\n[Error] {error_msg}"
+            
+            if self.current_response:
+                self.current_response += f"\n\n[Error] {error_msg}"
+                for i in range(len(self.events) - 1, -1, -1):
+                    if self.events[i]["type"] == "response":
+                        self.events[i]["content"] = self.current_response
+                        # 出错后，通常响应也结束了
+                        self.events[i]["is_completed"] = True
+                        break
+            else:
+                self.current_response = f"[Error] {error_msg}"
+                self.events.append({
+                    "type": "response",
+                    "content": self.current_response,
+                    "is_completed": True
+                })
 
         return event_type
 
     def get_display_args(self) -> dict:
         """获取用于 create_streaming_display 的参数"""
         return {
-            "thinking_text": self.thinking_text,
-            "response_text": self.response_text,
-            "tool_calls": self.tool_calls,
-            "tool_results": self.tool_results,
-            "is_thinking": self.is_thinking,
-            "is_responding": self.is_responding,
-            "is_processing": self.is_processing,
+            "events": self.events,
+            "is_waiting": False, # 由外部控制
+            "is_processing": self.is_processing
         }
 
 
@@ -199,76 +358,86 @@ def display_final_results(
         show_thinking: 是否显示 thinking
         show_response_panel: 是否用 Panel 显示响应
     """
-    # 显示 thinking
-    if show_thinking and state.thinking_text:
-        display_thinking = state.thinking_text
-        if len(display_thinking) > thinking_max_length:
-            half = thinking_max_length // 2
-            display_thinking = (
-                display_thinking[:half]
-                + "\n\n... (truncated) ...\n\n"
-                + display_thinking[-half:]
+    thinking_count = 0
+    
+    # 遍历事件列表，按顺序生成显示元素
+    for i, event in enumerate(state.events):
+        event_type = event.get("type")
+        
+        if event_type == "thinking" and show_thinking:
+            thinking_count += 1
+            content = event.get("content", "")
+            
+            title = f"🧠 Thinking (Round {thinking_count})"
+            display_content = content
+            if len(display_content) > thinking_max_length:
+                half = thinking_max_length // 2
+                display_content = (
+                    display_content[:half]
+                    + "\n\n... (truncated) ...\n\n"
+                    + display_content[-half:]
+                )
+            
+            console.print(
+                Panel(
+                    Text(display_content, style="dim"),
+                    title=title,
+                    border_style="blue",
+                )
             )
-        console.print(
-            Panel(
-                Text(display_thinking, style="dim"),
-                title="🧠 Thinking",
-                border_style="blue",
-            )
-        )
 
-    # 显示工具调用和结果（Claude Code 风格）
-    if show_tools and state.tool_calls:
-        for i, tc in enumerate(state.tool_calls):
-            # 判断是否有结果及成功状态
-            has_result = i < len(state.tool_results)
-            tr = state.tool_results[i] if has_result else None
-            content = tr.get('content', '') if tr else ''
-
+        elif event_type == "tool" and show_tools:
+            data = event.get("data", {})
+            status = data.get("status", "running")
+            result = data.get("result")
+            
             # 确定状态和颜色
-            if has_result and is_success(content):
-                status = ToolStatus.SUCCESS
-                style = "bold green"
-            elif has_result:
-                status = ToolStatus.ERROR
-                style = "bold red"
+            if status == "done" and result:
+                content = result.get("content", "")
+                if is_success(content):
+                    status_enum = ToolStatus.SUCCESS
+                    style = "bold green"
+                else:
+                    status_enum = ToolStatus.ERROR
+                    style = "bold red"
             else:
-                status = ToolStatus.PENDING
-                style = "dim"
+                status_enum = ToolStatus.RUNNING
+                style = "bold yellow"
 
-            # 紧凑格式显示
-            tool_compact = format_tool_compact(tc['name'], tc.get('args'))
+            # 紧凑格式显示工具调用
+            tool_compact = format_tool_compact(data['name'], data.get('args'))
             tool_text = Text()
-            tool_text.append(f"{status.value} ", style=style)
+            tool_text.append(f"{status_enum.value} ", style=style)
             tool_text.append(tool_compact, style=style)
             console.print(tool_text)
 
-            # 显示工具结果（树形格式）
-            if has_result:
+            # 显示对应的结果
+            if status == "done" and result:
+                # 已有结果，显示树形输出
                 result_elements = format_tool_result(
-                    tr['name'],
-                    content,
+                    result['name'],
+                    result.get('content', ''),
                     max_length=tool_result_max_length,
                     compact=True,
                 )
                 for elem in result_elements:
                     console.print(elem)
-        console.print()
+            console.print() # 空行分隔
 
-    # 显示最终响应
-    if state.response_text:
-        if show_response_panel:
-            console.print(
-                Panel(
-                    Markdown(state.response_text),
-                    title="💬 Response",
-                    border_style="green",
+        elif event_type == "response":
+            content = event.get("content", "")
+            if show_response_panel:
+                console.print(
+                    Panel(
+                        Markdown(content),
+                        title="💬 Response",
+                        border_style="green",
+                    )
                 )
-            )
-        else:
-            console.print(f"\n[bold blue]Assistant:[/bold blue]")
-            console.print(Markdown(state.response_text))
-            console.print()
+            else:
+                console.print(f"\n[bold blue]Assistant:[/bold blue]")
+                console.print(Markdown(content))
+                console.print()
 
 
 def format_tool_result(
@@ -370,131 +539,168 @@ def format_tool_args(args: dict, max_length: int = 300) -> list:
     return elements
 
 
+def render_event_static(event: dict, thinking_count: int = 0) -> Group:
+    """渲染静态（已完成）的事件"""
+    elements = []
+    event_type = event.get("type")
+
+    if event_type == "thinking":
+        content = event.get("content", "")
+        title = f"🧠 Thinking (Round {thinking_count})"
+        elements.append(
+            Panel(
+                Text(content, style="dim"),
+                title=title,
+                border_style="blue dim",
+                padding=(0, 1),
+            )
+        )
+
+    elif event_type == "tool":
+        data = event.get("data", {})
+        status = data.get("status", "done") # 默认 done
+        result = data.get("result")
+        
+        # 紧凑格式显示工具调用
+        status_enum = ToolStatus.SUCCESS if (result and is_success(result.get("content", ""))) else ToolStatus.ERROR
+        style = "bold green" if status_enum == ToolStatus.SUCCESS else "bold red"
+
+        tool_compact = format_tool_compact(data['name'], data.get('args'))
+        tool_text = Text()
+        tool_text.append(f"{status_enum.value} ", style=style)
+        tool_text.append(tool_compact, style=style)
+        elements.append(tool_text)
+
+        if result:
+            result_elements = format_tool_result(
+                result['name'],
+                result.get('content', ''),
+                compact=True,
+            )
+            elements.extend(result_elements)
+        elements.append(Text("")) # 空行
+
+    elif event_type == "response":
+        content = event.get("content", "")
+        elements.append(
+            Panel(
+                Markdown(content),
+                title="💬 Response",
+                border_style="green",
+                padding=(0, 1),
+            )
+        )
+
+    return Group(*elements)
+
 def create_streaming_display(
-    thinking_text: str = "",
-    response_text: str = "",
-    tool_calls: list = None,
-    tool_results: list = None,
-    is_thinking: bool = False,
-    is_responding: bool = False,
+    events: list = None,
     is_waiting: bool = False,
     is_processing: bool = False,
+    start_thinking_count: int = 1,
 ) -> Group:
     """
-    创建流式显示的布局
+    创建流式显示的布局（仅显示活动事件）
 
     Args:
-        thinking_text: 当前累积的 thinking 文本
-        response_text: 当前累积的响应文本
-        tool_calls: 工具调用列表
-        tool_results: 工具结果列表
-        is_thinking: 是否正在思考
-        is_responding: 是否正在响应
+        events: 活动事件列表
         is_waiting: 是否处于初始等待状态
         is_processing: 工具执行后等待 AI 继续处理
+        start_thinking_count: thinking 计数起始值
 
     Returns:
         Rich Group 对象
     """
     elements = []
-    tool_calls = tool_calls or []
-    tool_results = tool_results or []
-
-    # 判断是否有工具正在执行中
-    is_tool_executing = len(tool_calls) > len(tool_results)
+    events = events or []
 
     # 初始等待状态 - 显示 spinner 提示
-    if is_waiting and not thinking_text and not response_text and not tool_calls:
+    if is_waiting and not events:
         spinner = Spinner("dots", text=" AI 正在思考中...", style="cyan")
         elements.append(spinner)
         return Group(*elements)
+        
+    thinking_count = start_thinking_count - 1
 
-    # Thinking 面板
-    if thinking_text:
-        thinking_title = "🧠 Thinking"
-        if is_thinking:
-            thinking_title += " ..."
-        # 限制显示长度，保留最新内容
-        display_thinking = thinking_text
-        if len(display_thinking) > DisplayLimits.THINKING_STREAM:
-            display_thinking = (
-                "..." + display_thinking[-DisplayLimits.THINKING_STREAM :]
+    for i, event in enumerate(events):
+        event_type = event.get("type")
+        
+        if event_type == "thinking":
+            thinking_count += 1
+            content = event.get("content", "")
+            title = f"🧠 Thinking (Round {thinking_count}) ..."
+            
+            # 流式显示时，为了性能和视觉，可以截断过长的内容（仅展示尾部）
+            # 用户要求不要限制，但为了流式体验，尾部滚动是合理的
+            # 只要静态打印时是完整的即可
+            display_content = content
+            if len(display_content) > DisplayLimits.THINKING_STREAM:
+                display_content = "..." + display_content[-DisplayLimits.THINKING_STREAM:]
+            
+            elements.append(
+                Panel(
+                    Text(display_content, style="dim"),
+                    title=title,
+                    border_style="blue",
+                    padding=(0, 1),
+                )
             )
-        elements.append(
-            Panel(
-                Text(display_thinking, style="dim"),
-                title=thinking_title,
-                border_style="blue",
-                padding=(0, 1),
-            )
-        )
 
-    # Tool Calls 和 Results 配对显示（Claude Code 风格）
-    if tool_calls:
-        for i, tc in enumerate(tool_calls):
-            # 判断工具状态
-            has_result = i < len(tool_results)
-            tr = tool_results[i] if has_result else None
-
-            # 确定状态和颜色
-            if has_result:
-                # 已完成：根据结果判断成功/失败
-                content = tr.get('content', '') if tr else ''
+        elif event_type == "tool":
+            data = event.get("data", {})
+            status = data.get("status", "running")
+            result = data.get("result")
+            
+            if status == "done" and result:
+                content = result.get("content", "")
                 if is_success(content):
-                    status = ToolStatus.SUCCESS
+                    status_enum = ToolStatus.SUCCESS
                     style = "bold green"
                 else:
-                    status = ToolStatus.ERROR
+                    status_enum = ToolStatus.ERROR
                     style = "bold red"
             else:
-                # 执行中
-                status = ToolStatus.RUNNING
+                status_enum = ToolStatus.RUNNING
                 style = "bold yellow"
 
-            # 紧凑格式显示工具调用
-            tool_compact = format_tool_compact(tc['name'], tc.get('args'))
+            tool_compact = format_tool_compact(data['name'], data.get('args'))
             tool_text = Text()
-            tool_text.append(f"{status.value} ", style=style)
+            tool_text.append(f"{status_enum.value} ", style=style)
             tool_text.append(tool_compact, style=style)
             elements.append(tool_text)
 
-            # 显示对应的结果或"正在执行"状态
-            if has_result:
-                # 已有结果，显示树形输出
+            if status == "done" and result:
                 result_elements = format_tool_result(
-                    tr['name'],
-                    tr.get('content', ''),
-                    compact=True,  # 使用紧凑格式
+                    result['name'],
+                    result.get('content', ''),
+                    compact=True,
                 )
                 elements.extend(result_elements)
             else:
-                # 还没有结果，显示带 spinner 的"正在执行"状态
                 spinner = Spinner("dots", text=" 执行中...", style="yellow")
                 elements.append(spinner)
 
-    # 工具执行后等待 AI 继续处理的状态
-    if is_processing and not is_thinking and not is_responding and not response_text:
-        spinner = Spinner("dots", text=" AI 正在分析结果...", style="cyan")
-        elements.append(spinner)
-
-    # Response 面板
-    if response_text:
-        response_title = "💬 Response"
-        if is_responding:
-            response_title += " ..."
-        elements.append(
-            Panel(
-                Markdown(response_text),
-                title=response_title,
-                border_style="green",
-                padding=(0, 1),
+        elif event_type == "response":
+            content = event.get("content", "")
+            title = "💬 Response ..."
+            elements.append(
+                Panel(
+                    Markdown(content),
+                    title=title,
+                    border_style="green",
+                    padding=(0, 1),
+                )
             )
-        )
-    elif is_responding and not thinking_text:
-        # 显示等待指示器
-        elements.append(Text("⏳ Generating response...", style="dim"))
 
-    return Group(*elements) if elements else Text("⏳ Processing...", style="dim")
+    if is_processing:
+        if not events or events[-1]["type"] != "thinking":
+            spinner = Spinner("dots", text=" AI 正在分析结果...", style="cyan")
+            elements.append(spinner)
+            
+    if not is_processing and not elements:
+         elements.append(Text("⏳ Processing...", style="dim"))
+
+    return Group(*elements)
 
 
 def print_banner():
@@ -593,6 +799,8 @@ def cmd_run(prompt: str, enable_thinking: bool = True):
 
     try:
         state = StreamState()
+        printed_count = 0
+        thinking_round = 0
 
         with Live(console=console, refresh_per_second=10, transient=True) as live:
             # 立即显示等待状态
@@ -600,24 +808,42 @@ def cmd_run(prompt: str, enable_thinking: bool = True):
 
             for event in agent.stream_events(prompt):
                 event_type = state.handle_event(event)
+                
+                # 检查是否有已完成的事件需要归档打印
+                while printed_count < len(state.events):
+                    evt = state.events[printed_count]
+                    if evt.get("is_completed"):
+                        if evt["type"] == "thinking":
+                            thinking_round += 1
+                        
+                        # 在 Live 上方打印归档内容
+                        # 为了避免 Live 清除不彻底，我们先清除 Live，打印，再恢复
+                        # 但 rich.Live 默认就是在 update 时重绘，print 会在上方插入
+                        console.print(render_event_static(evt, thinking_round))
+                        printed_count += 1
+                    else:
+                        break
 
-                # 更新 Live 显示
-                live.update(create_streaming_display(**state.get_display_args()))
+                # 更新 Live 显示（只显示未归档的活动事件）
+                active_events = state.events[printed_count:]
+                live.update(create_streaming_display(
+                    events=active_events,
+                    is_processing=state.is_processing,
+                    start_thinking_count=thinking_round + 1
+                ))
 
-                # tool_call 和 tool_result 时强制刷新
-                # tool_call: 确保"正在执行"状态立即可见
-                # tool_result: 确保"正在分析结果"状态立即可见
                 if event_type in ("tool_call", "tool_result"):
                     live.refresh()
-
-        # 显示最终结果
+        
+        # 打印剩余的事件
+        while printed_count < len(state.events):
+            evt = state.events[printed_count]
+            if evt["type"] == "thinking":
+                thinking_round += 1
+            console.print(render_event_static(evt, thinking_round))
+            printed_count += 1
+            
         console.print()
-        display_final_results(
-            state,
-            tool_result_max_length=1000,  # cmd_run 用较长的限制
-            args_max_length=400,
-            show_response_panel=True,
-        )
 
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -774,6 +1000,8 @@ def cmd_interactive(enable_thinking: bool = True):
             console.print()
 
             state = StreamState()
+            printed_count = 0
+            thinking_round = 0
 
             with Live(console=console, refresh_per_second=10, transient=True) as live:
                 # 立即显示等待状态
@@ -782,25 +1010,39 @@ def cmd_interactive(enable_thinking: bool = True):
                 for event in agent.stream_events(user_input, thread_id=thread_id):
                     event_type = state.handle_event(event)
 
-                    # 更新 Live 显示
-                    live.update(create_streaming_display(**state.get_display_args()))
+                    # 检查是否有已完成的事件需要归档打印
+                    while printed_count < len(state.events):
+                        evt = state.events[printed_count]
+                        if evt.get("is_completed"):
+                            if evt["type"] == "thinking":
+                                thinking_round += 1
+                            
+                            console.print(render_event_static(evt, thinking_round))
+                            printed_count += 1
+                        else:
+                            break
 
-                    # tool_call 和 tool_result 时强制刷新
-                    # tool_call: 确保"正在执行"状态立即可见
-                    # tool_result: 确保"正在分析结果"状态立即可见
+                    # 更新 Live 显示（只显示未归档的活动事件）
+                    active_events = state.events[printed_count:]
+                    live.update(create_streaming_display(
+                        events=active_events,
+                        is_processing=state.is_processing,
+                        start_thinking_count=thinking_round + 1
+                    ))
+
                     if event_type in ("tool_call", "tool_result"):
                         live.refresh()
 
-            # 显示最终结果（交互模式：不用 Panel 包裹响应）
-            display_final_results(
-                state,
-                thinking_max_length=500,  # 交互模式用较短的 thinking 显示
-                tool_result_max_length=DisplayLimits.TOOL_RESULT_FINAL,
-                args_max_length=DisplayLimits.ARGS_FORMATTED,
-                show_thinking=False,
-                show_tools=False,
-                show_response_panel=False,  # 交互模式不用 Panel
-            )
+            # 打印剩余的事件
+            while printed_count < len(state.events):
+                evt = state.events[printed_count]
+                if evt["type"] == "thinking":
+                    thinking_round += 1
+                console.print(render_event_static(evt, thinking_round))
+                printed_count += 1
+
+            # 交互模式不需要最后的 Panel
+            # display_final_results( ... ) 已经不需要了
 
         except KeyboardInterrupt:
             console.print("\n[dim]Goodbye![/dim]")
