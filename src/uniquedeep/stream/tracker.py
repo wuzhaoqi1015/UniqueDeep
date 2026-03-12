@@ -93,16 +93,34 @@ class ToolCallTracker:
             if args_complete:
                 info.args_complete = True
 
-    def append_json_delta(self, partial_json: str, index: int = 0) -> None:
+    def append_json_delta(self, partial_json: str, index: int = 0) -> bool:
         """累积 input_json_delta 片段
 
         LangChain 流式传输中，args 可能以 input_json_delta 形式分批到达。
         index 用于处理并行工具调用的情况。
+        
+        Returns:
+            bool: 是否成功解析并更新了 args
         """
         # 使用 last_tool_id（因为 input_json_delta 没有 tool_id）
         tool_id = self._last_tool_id
+        updated = False
+
         if tool_id and tool_id in self._calls:
-            self._calls[tool_id]._json_buffer += partial_json
+            info = self._calls[tool_id]
+            info._json_buffer += partial_json
+            
+            # 尝试实时解析
+            # 只有当 buffer 看起来闭合时才尝试，避免频繁抛异常
+            stripped = info._json_buffer.strip()
+            if (stripped.startswith('{') and stripped.endswith('}')):
+                try:
+                    info.args = json.loads(info._json_buffer)
+                    updated = True
+                except json.JSONDecodeError:
+                    pass
+        
+        return updated
 
     def finalize_all(self) -> None:
         """最终化所有工具调用：解析累积的 JSON 片段并标记参数完整"""

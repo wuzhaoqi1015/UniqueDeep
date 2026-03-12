@@ -5,21 +5,21 @@ description = "使用 LangChain 构建的具有 Skills 特性的 Agent"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "rich>=14.2.0",
-    "prompt-toolkit>=3.0.0",
-    "fastapi>=0.116.1",
-    "uvicorn>=0.35.0",
-    # LangChain 1.0 Skills Agent 依赖
-    "langchain>=1.0.0",
-    "langchain-anthropic>=1.0.0",
-    "langchain-deepseek>=1.0.0",
-    "langchain-google-genai>=1.0.0",
-    "langchain-openai>=1.0.0",
-    "langgraph>=1.0.0",
-    "pyyaml>=6.0",
-    "python-dotenv>=1.0",
-    "duckduckgo-search>=8.1.1",
-    "mcp>=1.26.0",
+    "langchain>=0.3.0",
+    "langgraph>=0.2.0",
+    "langchain-anthropic",
+    "langchain-deepseek",
+    "langchain-openai",
+    "langchain-google-genai",
+    "langchain-community",
+    "zhipuai",
+    "rich",
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "mcp",
+    "lxml>=6.0.2",
+    "prompt-toolkit>=3.0.52",
 ]
 
 [project.scripts]

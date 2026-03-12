@@ -28,3 +28,5 @@ rna_paper/
 .claude/
 .trae
  
+ # 配置
+models.json

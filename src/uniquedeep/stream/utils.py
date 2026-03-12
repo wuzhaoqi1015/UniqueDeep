@@ -227,8 +227,15 @@ def format_tool_compact(name: str, args: dict | None) -> str:
         return f"ListDir({path})"
 
     elif name_lower == "load_skill":
-        skill_name = args.get("skill_name", "")
-        return f"Skill({skill_name})"
+        skill_name = args.get("skill_name") or args.get("name")
+        if not skill_name and args:
+            # Fallback: try to find any value that looks like a skill name
+            # Or just take the first string value
+            for v in args.values():
+                if isinstance(v, str) and v:
+                    skill_name = v
+                    break
+        return f"Skill({skill_name or ''})"
 
     # 默认格式：显示前几个参数
     params = []

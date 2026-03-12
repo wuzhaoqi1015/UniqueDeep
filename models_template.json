@@ -1,0 +1,159 @@
+{
+  "active_model": "deepseek-reasoner",
+  "active_provider": "deepseek",
+  "default_config": {
+    "temperature": 0.1,
+    "max_tokens": 8192,
+    "max_turns": 50,
+    "enable_thinking": true,
+    "thinking_budget": 10000
+  },
+  "providers": {
+    "anthropic": {
+      "api_key": "${ANTHROPIC_API_KEY}",
+      "base_url": "${ANTHROPIC_BASE_URL}",
+      "models": [
+        {
+          "name": "claude-opus-4-6",
+          "description": "Claude Opus (High Intelligence)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 8192
+        },
+        {
+          "name": "claude-sonnet-4-6",
+          "description": "Claude Sonnet (Balanced)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 8192
+        },
+        {
+          "name": "claude-3-7-sonnet-20250219",
+          "description": "Latest Sonnet (Balanced)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 64000
+        }
+      ]
+    },
+    "deepseek": {
+      "api_key": "${DEEPSEEK_API_KEY}",
+      "base_url": "${DEEPSEEK_BASE_URL}",
+      "models": [
+        {
+          "name": "deepseek-chat",
+          "description": "DeepSeek V3 (General)",
+          "thinking": false,
+          "max_tokens": 65536
+        },
+        {
+          "name": "deepseek-reasoner",
+          "description": "DeepSeek R1 (Reasoning)",
+          "thinking": true,
+          "temperature": 0.6,
+          "max_tokens": 65536
+        }
+      ]
+    },
+    "openai": {
+      "api_key": "${OPENAI_API_KEY}",
+      "base_url": "${OPENAI_BASE_URL}",
+      "models": [
+        {
+          "name": "gpt-4o",
+          "description": "GPT-4 Omni",
+          "thinking": false,
+          "max_tokens": 16384
+        },
+        {
+          "name": "o1-preview",
+          "description": "OpenAI o1 (Reasoning)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 65536
+        }
+      ]
+    },
+    "zhipuai": {
+      "api_key": "${GLM_API_KEY}",
+      "base_url": "${GLM_BASE_URL}",
+      "models": [
+        {
+          "name": "glm-4",
+          "description": "GLM-4 (General)",
+          "thinking": false,
+          "max_tokens": 8192
+        },
+        {
+          "name": "glm-4-flash",
+          "description": "GLM-4 Flash (Fast)",
+          "thinking": false,
+          "max_tokens": 8192
+        },
+        {
+          "name": "glm-5",
+          "description": "GLM-5 (Next Gen)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 8192
+        }
+      ]
+    },
+    "moonshot": {
+      "api_key": "${KIMI_API_KEY}",
+      "base_url": "${KIMI_BASE_URL}",
+      "models": [
+        {
+          "name": "moonshot-v1-8k",
+          "description": "Kimi v1 8k",
+          "thinking": false,
+          "max_tokens": 8192
+        },
+        {
+          "name": "kimi-k2.5",
+          "description": "Kimi 2.5 (Latest)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 8192
+        }
+      ]
+    },
+    "doubao": {
+      "api_key": "${DOUBAO_SEED_API_KEY}",
+      "base_url": "${DOUBAO_SEED_BASE_URL}",
+      "models": [
+        {
+          "name": "doubao-pro-32k",
+          "description": "Doubao Pro 32k",
+          "thinking": false,
+          "max_tokens": 4096
+        },
+        {
+          "name": "doubao-seed-2",
+          "description": "Doubao Seed 2 (Latest)",
+          "thinking": true,
+          "temperature": 1.0,
+          "max_tokens": 4096
+        }
+      ]
+    },
+    "google_genai": {
+      "api_key": "${GOOGLE_GENAI_API_KEY}",
+      "base_url": "${GOOGLE_GENAI_BASE_URL}",
+      "models": [
+        {
+          "name": "gemini-2.0-flash",
+          "description": "Gemini 2.0 Flash",
+          "thinking": false,
+          "max_tokens": 8192
+        },
+        {
+          "name": "gemini-2.5-pro",
+          "description": "Gemini 2.5 Pro",
+          "thinking": false,
+          "max_tokens": 8192
+        }
+      ]
+    }
+  }
+}
