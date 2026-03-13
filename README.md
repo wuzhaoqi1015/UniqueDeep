@@ -77,19 +77,28 @@ npx skills add https://github.com/anthropics/skills --skill skill-creator -y
 
 ### 2. 配置模型
 
-创建 `.env` 文件（参考 `.env.example`）：
+UniqueDeep 使用 [`models.json`](./models.json) 作为模型配置的唯一真实来源。该文件定义了可用的模型提供商、API 端点以及模型特定参数。
+
+#### 第一步：复制模板文件
 
 ```bash
-# === 模型选择 ===
-LLM_PROVIDER=anthropic  # anthropic, deepseek, openai
-LLM_MODEL=claude-opus-4-6
+# 复制模型配置模板
+cp models_template.json models.json
 
-# === 凭证配置 ===
+# 复制环境变量模板
+cp .env.example .env
+```
+
+#### 第二步：配置环境变量
+
+编辑 `.env` 文件，填入您的 API 密钥和端点：
+
+```bash
 # Anthropic
 ANTHROPIC_API_KEY=sk-ant-xxx
 ANTHROPIC_BASE_URL=https://api.anthropic.com
 
-# DeepSeek
+# DeepSeek (兼容 OpenAI 协议)
 DEEPSEEK_API_KEY=sk-xxx
 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 
@@ -97,7 +106,23 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 OPENAI_API_KEY=sk-xxx
 OPENAI_BASE_URL=https://api.openai.com/v1
 
+# 其他提供商（如需使用）
+GLM_API_KEY=xxx
+KIMI_API_KEY=xxx
+DOUBAO_SEED_API_KEY=xxx
+GOOGLE_GENAI_API_KEY=xxx
+# ... 更多变量请参考 .env.example
 ```
+
+#### 第三步：验证配置
+
+`models.json` 中已经使用环境变量占位符（如 `${ANTHROPIC_API_KEY}`）引用上述密钥。启动时系统会自动加载配置。
+
+#### 动态切换模型
+
+在交互式会话中，您可以使用 `/model <模型名称>` 命令动态切换模型，系统会自动更新 `models.json` 中的 `active_model` 字段。
+
+支持的模型名称示例：`deepseek-reasoner`, `claude-opus-4-6`, `gpt-4o`, `glm-4` 等。
 
 ### 3. 交互式体验
 
@@ -166,6 +191,7 @@ docker compose run --rm uniquedeep
 - `/skills`: 列出所有技能
 - `/prompt`: 显示当前 System Prompt
 - `/temp [val]`: 动态调节温度 (0.0-1.0)
+- `/model <名称>`: 动态切换模型（更新 `models.json`）
 - `/exit`: 退出
 
 ## 📂 项目结构
@@ -199,12 +225,26 @@ UniqueDeep/
 
 ## ⚙️ 环境变量
 
+以下环境变量用于配置 API 密钥和端点（在 `.env` 文件中设置）：
+
 | 变量 | 说明 | 示例 |
 |------|------|--------|
-| `LLM_PROVIDER` | 模型厂商 | `anthropic`, `deepseek` |
-| `LLM_MODEL` | 模型名称 | `claude-opus-4-6` `deepseek-reasoner` |
-| `ENABLE_THINKING` | 启用思考模式 | `true` (仅 Claude 3.7+) |
-| `THINKING_BUDGET` | 思考 Token 预算 | `10000` |
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥 | `sk-ant-xxx` |
+| `ANTHROPIC_BASE_URL` | Anthropic API 端点 | `https://api.anthropic.com` |
+| `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | `sk-xxx` |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 端点 | `https://api.deepseek.com/v1` |
+| `OPENAI_API_KEY` | OpenAI API 密钥 | `sk-xxx` |
+| `OPENAI_BASE_URL` | OpenAI API 端点 | `https://api.openai.com/v1` |
+| `GLM_API_KEY` | 智谱AI API 密钥 | `xxx` |
+| `GLM_BASE_URL` | 智谱AI API 端点 | `https://open.bigmodel.cn/api/paas/v4/` |
+| `KIMI_API_KEY` | Kimi (Moonshot) API 密钥 | `xxx` |
+| `KIMI_BASE_URL` | Kimi API 端点 | `https://api.moonshot.cn/v1` |
+| `DOUBAO_SEED_API_KEY` | 豆包Seed API 密钥 | `xxx` |
+| `DOUBAO_SEED_BASE_URL` | 豆包Seed API 端点 | `https://ark.cn-beijing.volces.com/api/v3` |
+| `GOOGLE_GENAI_API_KEY` | Google Gemini API 密钥 | `xxx` |
+| `GOOGLE_GENAI_BASE_URL` | Google Gemini API 端点 | `https://generativelanguage.googleapis.com/v1beta/openai` |
+
+> **注意**：模型配置（如 `temperature`, `max_tokens`, `thinking` 模式等）现在统一通过 [`models.json`](./models.json) 管理。您可以通过交互式命令 `/model <模型名称>` 动态切换模型。
 
 ## 📚 参考文档
 
